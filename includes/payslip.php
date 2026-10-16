@@ -1,10 +1,10 @@
 <?php
-class Payslip {
-    // Database connection and table name
-    private $conn;
-    private $table_name = "payslips"; // Ensure this is the correct table name
 
-    
+class Payslip
+{
+    private $conn;
+    private $table_name = "payslips";
+
     public $id;
     public $employee_id;
     public $month;
@@ -12,74 +12,252 @@ class Payslip {
     public $salary;
     public $total_salary;
     public $generated_at;
-    public $daily_rate;
 
-    // Constructor to initialize the database connection
-    public function __construct($db) {
+
+    /*
+    |--------------------------------------------------------------------------
+    | CONSTRUCTOR
+    |--------------------------------------------------------------------------
+    */
+
+    public function __construct($db)
+    {
         $this->conn = $db;
     }
 
-    // Method to generate (insert) a new payslip
-    public function generatePayslip($employee_id, $salary, $days_worked, $total_salary) {
 
-        $total_salary = $salary * $days_worked;
-        
+    /*
+    |--------------------------------------------------------------------------
+    | GENERATE PAYSLIP
+    |--------------------------------------------------------------------------
+    */
 
-        $query = "INSERT INTO " . $this->table_name . " (employee_id, days_worked, salary, total_salary, generated_at) 
-                  VALUES (?, ?, ?, ?, NOW())";
-    
+    public function generatePayslip(
+        $employee_id,
+        $salary,
+        $days_worked,
+        $total_salary,
+        $month
+    ) {
+
+        $query = "
+            INSERT INTO payslips
+            (
+                employee_id,
+                month,
+                days_worked,
+                salary,
+                total_salary,
+                generated_at
+            )
+            VALUES (?, ?, ?, ?, ?, NOW())
+        ";
+
         $stmt = $this->conn->prepare($query);
-        $stmt->bind_param("iidd", $employee_id, $days_worked, $salary, $total_salary);
-    
-        return $stmt->execute();
+
+        if (!$stmt) {
+            return false;
+        }
+
+        $stmt->bind_param(
+            "isidd",
+            $employee_id,
+            $month,
+            $days_worked,
+            $salary,
+            $total_salary
+        );
+
+        $success = $stmt->execute();
+
+        $stmt->close();
+
+        return $success;
     }
-    
 
-    // Method to get a single payslip by payslip ID
-    public function getPayslipById($payslip_id) {
-        // Query to get a specific payslip
-        $query = "SELECT id, employee_id, days_worked, salary, total_salary, generated_at 
-                  FROM " . $this->table_name . " 
-                  WHERE id = ? LIMIT 1";
 
-        // Prepare statement
+    /*
+    |--------------------------------------------------------------------------
+    | GET PAYSLIP BY ID
+    |--------------------------------------------------------------------------
+    */
+
+    public function getPayslipById($payslip_id)
+    {
+
+        $query = "
+            SELECT
+                id,
+                employee_id,
+                month,
+                days_worked,
+                salary,
+                total_salary,
+                generated_at
+
+            FROM payslips
+
+            WHERE id = ?
+
+            LIMIT 1
+        ";
+
         $stmt = $this->conn->prepare($query);
 
-        // Bind the payslip ID
-        $stmt->bind_param("i", $payslip_id);
+        if (!$stmt) {
+            return null;
+        }
 
-        // Execute the query
+        $stmt->bind_param(
+            "i",
+            $payslip_id
+        );
+
         $stmt->execute();
 
-        // Get the result
         $result = $stmt->get_result();
 
-        // Fetch and return the data as an associative array
-        return $result->fetch_assoc();
+        $payslip = $result->fetch_assoc();
+
+        $stmt->close();
+
+        return $payslip;
     }
 
-    // Method to get all payslips for a specific employee
-    public function getPayslipsByEmployeeId($employee_id) {
-        // Query to get all payslips for a specific employee
-        $query = "SELECT id, days_worked, salary, total_salary, generated_at 
-                  FROM " . $this->table_name . " 
-                  WHERE employee_id = ? ORDER BY generated_at ASC";
 
-        // Prepare statement
+    /*
+    |--------------------------------------------------------------------------
+    | GET ALL PAYSLIPS FOR EMPLOYEE
+    |--------------------------------------------------------------------------
+    */
+
+    public function getPayslipsByEmployeeId($employee_id)
+    {
+
+        $query = "
+            SELECT
+                id,
+                employee_id,
+                month,
+                days_worked,
+                salary,
+                total_salary,
+                generated_at
+
+            FROM payslips
+
+            WHERE employee_id = ?
+
+            ORDER BY month DESC
+        ";
+
         $stmt = $this->conn->prepare($query);
 
-        // Bind the employee ID
-        $stmt->bind_param("i", $employee_id);
+        if (!$stmt) {
+            return [];
+        }
 
-        // Execute the query
+        $stmt->bind_param(
+            "i",
+            $employee_id
+        );
+
         $stmt->execute();
 
-        // Get the result
         $result = $stmt->get_result();
 
-        
-        return $result->fetch_all(MYSQLI_ASSOC);
+        $payslips = $result->fetch_all(
+            MYSQLI_ASSOC
+        );
+
+        $stmt->close();
+
+        return $payslips;
     }
-    
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | DELETE PAYSLIP
+    |--------------------------------------------------------------------------
+    */
+
+    public function deletePayslip($payslip_id)
+    {
+
+        $query = "
+            DELETE FROM payslips
+            WHERE id = ?
+        ";
+
+        $stmt = $this->conn->prepare($query);
+
+        if (!$stmt) {
+            return false;
+        }
+
+        $stmt->bind_param(
+            "i",
+            $payslip_id
+        );
+
+        $success = $stmt->execute();
+
+        $stmt->close();
+
+        return $success;
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | GET LATEST PAYSLIP
+    |--------------------------------------------------------------------------
+    */
+
+    public function getLatestPayslip($employee_id)
+    {
+
+        $query = "
+            SELECT
+                id,
+                employee_id,
+                month,
+                days_worked,
+                salary,
+                total_salary,
+                generated_at
+
+            FROM payslips
+
+            WHERE employee_id = ?
+
+            ORDER BY month DESC
+
+            LIMIT 1
+        ";
+
+        $stmt = $this->conn->prepare($query);
+
+        if (!$stmt) {
+            return null;
+        }
+
+        $stmt->bind_param(
+            "i",
+            $employee_id
+        );
+
+        $stmt->execute();
+
+        $result = $stmt->get_result();
+
+        $payslip = $result->fetch_assoc();
+
+        $stmt->close();
+
+        return $payslip;
+    }
 }
+
 ?>

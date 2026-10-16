@@ -1,72 +1,287 @@
 <?php
+
 include_once 'user.php';
 
-class Employee extends User {
-    // Inheritance: Employee-specific management methods
+class Employee extends User
+{
+    /*
+    |--------------------------------------------------------------------------
+    | CREATE EMPLOYEE
+    |--------------------------------------------------------------------------
+    */
+    public function createEmployee(
+        $username,
+        $email,
+        $password,
+        $role,
+        $full_name,
+        $position,
+        $basic_salary
+    ) {
+        // Make sure only employee accounts are created here
+        $role = 'employee';
 
-    // ADD/CREATE
-    public function createEmployee($username, $email, $password, $role, $full_name, $position, $basic_salary) {
-        // First, register the user in the users table
-        $this->register($username, $email, $password, $role);
+        // Check if username already exists
+        $check = $this->conn->prepare(
+            "SELECT id FROM users WHERE username = ? LIMIT 1"
+        );
 
-        // Get the last inserted user ID (which will be the employee's ID)
-        $employeeId = $this->conn->insert_id; 
+        $check->bind_param("s", $username);
+        $check->execute();
 
-        // Insert into the employees table
-        $stmt = $this->conn->prepare("INSERT INTO employees (user_id, full_name, position, basic_salary) VALUES (?, ?, ?, ?)");
-        $stmt->bind_param("issd", $employeeId, $full_name, $position, $basic_salary); // Adjust type to match the database
-        return $stmt->execute(); // Execute the statement
+        $result = $check->get_result();
+
+        if ($result->num_rows > 0) {
+            return false;
+        }
+
+        $check->close();
+
+
+        // Check if email already exists
+        $checkEmail = $this->conn->prepare(
+            "SELECT id FROM users WHERE email = ? LIMIT 1"
+        );
+
+        $checkEmail->bind_param("s", $email);
+        $checkEmail->execute();
+
+        $emailResult = $checkEmail->get_result();
+
+        if ($emailResult->num_rows > 0) {
+            return false;
+        }
+
+        $checkEmail->close();
+
+
+        // Hash password
+        $hashedPassword = password_hash(
+            $password,
+            PASSWORD_DEFAULT
+        );
+
+
+        // Insert user
+        $stmt = $this->conn->prepare("
+            INSERT INTO users
+            (username, email, password, role)
+            VALUES (?, ?, ?, ?)
+        ");
+
+        $stmt->bind_param(
+            "ssss",
+            $username,
+            $email,
+            $hashedPassword,
+            $role
+        );
+
+        if (!$stmt->execute()) {
+            $stmt->close();
+            return false;
+        }
+
+
+        // Get newly created user ID
+        $employeeId = $this->conn->insert_id;
+
+        $stmt->close();
+
+
+        // Insert employee information
+        $employeeStmt = $this->conn->prepare("
+            INSERT INTO employees
+            (user_id, full_name, position, basic_salary)
+            VALUES (?, ?, ?, ?)
+        ");
+
+        $employeeStmt->bind_param(
+            "issd",
+            $employeeId,
+            $full_name,
+            $position,
+            $basic_salary
+        );
+
+        $success = $employeeStmt->execute();
+
+        $employeeStmt->close();
+
+        return $success;
     }
 
-    // RETRIEVE
-    public function getEmployees() {
-        // Join users and employees tables to fetch employee details
+
+    /*
+    |--------------------------------------------------------------------------
+    | GET ALL EMPLOYEES
+    |--------------------------------------------------------------------------
+    */
+    public function getEmployees()
+    {
         $stmt = $this->conn->prepare("
-            SELECT u.id, u.username, u.email, u.role, e.full_name, e.position, e.basic_salary
+            SELECT
+                u.id,
+                u.username,
+                u.email,
+                u.role,
+                e.employee_id,
+                e.full_name,
+                e.position,
+                e.basic_salary,
+                e.status,
+                e.date_hired
             FROM users u
-            JOIN employees e ON u.id = e.user_id
+
+            INNER JOIN employees e
+                ON u.id = e.user_id
+
             WHERE u.role = 'employee'
+
+            ORDER BY e.employee_id DESC
         ");
+
         $stmt->execute();
-        return $stmt->get_result()->fetch_all(MYSQLI_ASSOC); // Fetch all results as an associative array
+
+        $result = $stmt->get_result();
+
+        $employees = $result->fetch_all(MYSQLI_ASSOC);
+
+        $stmt->close();
+
+        return $employees;
     }
 
-    public function getEmployeeById($id) {
-        // Join users and employees tables to fetch employee details by id
+
+    /*
+    |--------------------------------------------------------------------------
+    | GET EMPLOYEE BY USER ID
+    |--------------------------------------------------------------------------
+    */
+    public function getEmployeeById($id)
+    {
         $stmt = $this->conn->prepare("
-            SELECT u.id, u.username, u.email, u.role, e.full_name, e.position, e.basic_salary
+            SELECT
+                u.id,
+                u.username,
+                u.email,
+                u.role,
+
+                e.employee_id,
+                e.full_name,
+                e.position,
+                e.basic_salary,
+                e.status,
+                e.date_hired
+
             FROM users u
-            JOIN employees e ON u.id = e.user_id
-            WHERE u.id = ? AND u.role = 'employee'
+
+            INNER JOIN employees e
+                ON u.id = e.user_id
+
+            WHERE u.id = ?
+            AND u.role = 'employee'
+
+            LIMIT 1
         ");
-        $stmt->bind_param("i", $id); // Bind the employee id
+
+        $stmt->bind_param("i", $id);
+
         $stmt->execute();
-        return $stmt->get_result()->fetch_assoc(); // Fetch a single employee's data
+
+        $result = $stmt->get_result();
+
+        $employee = $result->fetch_assoc();
+
+        $stmt->close();
+
+        return $employee;
     }
 
-    // UPDATE
-    public function updateEmployee($id, $username, $email, $role, $full_name, $position, $basic_salary) {
-        $stmt = $this->conn->prepare("UPDATE users u JOIN employees e ON u.id = e.user_id SET u.username = ?, u.email = ?, u.role = ?, e.full_name = ?, e.position = ?, e.basic_salary = ? WHERE u.id = ?");
-        $stmt->bind_param("sssssdi", $username, $email, $role, $full_name, $position, $basic_salary, $id);
-        return $stmt->execute();
+
+    /*
+    |--------------------------------------------------------------------------
+    | UPDATE EMPLOYEE
+    |--------------------------------------------------------------------------
+    */
+    public function updateEmployee(
+        $id,
+        $username,
+        $email,
+        $role,
+        $full_name,
+        $position,
+        $basic_salary
+    ) {
+        // Only allow employee role from this class
+        $role = 'employee';
+
+        $stmt = $this->conn->prepare("
+            UPDATE users u
+
+            INNER JOIN employees e
+                ON u.id = e.user_id
+
+            SET
+                u.username = ?,
+                u.email = ?,
+                u.role = ?,
+
+                e.full_name = ?,
+                e.position = ?,
+                e.basic_salary = ?
+
+            WHERE u.id = ?
+        ");
+
+        $stmt->bind_param(
+            "sssssdi",
+            $username,
+            $email,
+            $role,
+            $full_name,
+            $position,
+            $basic_salary,
+            $id
+        );
+
+        $success = $stmt->execute();
+
+        $stmt->close();
+
+        return $success;
     }
 
-    // DELETE
-    public function deleteEmployee($id) {
-        // First, delete related records in the `payslips` table
-        $stmt1 = $this->conn->prepare("DELETE FROM payslips WHERE employee_id = ?");
-        $stmt1->bind_param("i", $id);
-        $stmt1->execute();
 
-        // Next, delete related records in the `employees` table
-        $stmt2 = $this->conn->prepare("DELETE FROM employees WHERE user_id = ?");
-        $stmt2->bind_param("i", $id);
-        $stmt2->execute();
+    /*
+    |--------------------------------------------------------------------------
+    | DELETE EMPLOYEE
+    |--------------------------------------------------------------------------
+    */
+    public function deleteEmployee($id)
+    {
+        /*
+         * We don't delete from payslips because our database
+         * uses the payroll table instead.
+         *
+         * The payroll records will be automatically deleted
+         * because of the foreign key ON DELETE CASCADE.
+         */
 
-        // Finally, delete the user from the `users` table
-        $stmt3 = $this->conn->prepare("DELETE FROM users WHERE id = ?");
-        $stmt3->bind_param("i", $id);
-        return $stmt3->execute();
+        $stmt = $this->conn->prepare("
+            DELETE FROM users
+            WHERE id = ?
+            AND role = 'employee'
+        ");
+
+        $stmt->bind_param("i", $id);
+
+        $success = $stmt->execute();
+
+        $stmt->close();
+
+        return $success;
     }
 }
+
 ?>
